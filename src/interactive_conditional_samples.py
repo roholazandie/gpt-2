@@ -14,7 +14,7 @@ def interact_model(
     nsamples=1,
     batch_size=1,
     length=None,
-    temperature=1,
+    temperature=0.6,
     top_k=0,
 ):
     """
@@ -41,13 +41,15 @@ def interact_model(
 
     enc = encoder.get_encoder(model_name)
     hparams = model.default_hparams()
-    with open(os.path.join('models', model_name, 'hparams.json')) as f:
+    with open(os.path.join('/home/rohola/Codes/Python/gpt-2/models', model_name, 'hparams.json')) as f:
         hparams.override_from_dict(json.load(f))
 
     if length is None:
-        length = hparams.n_ctx // 2
+        length = hparams.n_ctx // 2 #todo why this is n_ctx//2 ? this looks like an arbitrary choice of the length of response
     elif length > hparams.n_ctx:
         raise ValueError("Can't get samples longer than window size: %s" % hparams.n_ctx)
+
+    length = 32
 
     with tf.Session(graph=tf.Graph()) as sess:
         context = tf.placeholder(tf.int32, [batch_size, None])
@@ -61,26 +63,37 @@ def interact_model(
         )
 
         saver = tf.train.Saver()
-        ckpt = tf.train.latest_checkpoint(os.path.join('models', model_name))
+        ckpt = tf.train.latest_checkpoint(os.path.join('/home/rohola/Codes/Python/gpt-2/models', model_name))
         saver.restore(sess, ckpt)
 
+
+        conversaion = []
         while True:
             raw_text = input("Model prompt >>> ")
             while not raw_text:
                 print('Prompt should not be empty!')
                 raw_text = input("Model prompt >>> ")
+            conversaion.append(raw_text)
+            conversaion_text = " ".join(conversaion)
+            conversaion_tokens = enc.encode(conversaion_text)
             context_tokens = enc.encode(raw_text)
             generated = 0
             for _ in range(nsamples // batch_size):
+                # out = sess.run(output, feed_dict={
+                #     context: [context_tokens for _ in range(batch_size)]
+                # })[:, len(context_tokens):]
+
                 out = sess.run(output, feed_dict={
-                    context: [context_tokens for _ in range(batch_size)]
-                })[:, len(context_tokens):]
+                    context: [conversaion_tokens for _ in range(batch_size)]
+                })[:, len(conversaion_tokens):]
+
                 for i in range(batch_size):
                     generated += 1
                     text = enc.decode(out[i])
                     print("=" * 40 + " SAMPLE " + str(generated) + " " + "=" * 40)
                     print(text)
             print("=" * 80)
+
 
 if __name__ == '__main__':
     fire.Fire(interact_model)

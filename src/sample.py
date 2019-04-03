@@ -9,9 +9,9 @@ def top_k_logits(logits, k):
 
     def _top_k():
         values, _ = tf.nn.top_k(logits, k=k)
-        min_values = values[:, -1, tf.newaxis]
+        min_values = values[:, -1, tf.newaxis]#this is the minvalue of topk (maxk) of logits
         return tf.where(
-            logits < min_values,
+            logits < min_values, #all the values less than the min of topk
             tf.ones_like(logits, dtype=logits.dtype) * -1e10,
             logits,
         )
@@ -32,9 +32,9 @@ def sample_sequence(*, hparams, length, start_token=None, batch_size=None, conte
     def step(hparams, tokens, past=None):
         lm_output = model.model(hparams=hparams, X=tokens, past=past, reuse=tf.AUTO_REUSE)
 
-        logits = lm_output['logits'][:, :, :hparams.n_vocab]
+        logits = lm_output['logits'][:, :, :hparams.n_vocab] # the last bracket has no effect cuz it's already have the vocab_size
         presents = lm_output['present']
-        presents.set_shape(model.past_shape(hparams=hparams, batch_size=batch_size))
+        presents.set_shape(model.past_shape(hparams=hparams, batch_size=batch_size)) # no effect here
         return {
             'logits': logits,
             'presents': presents,
@@ -46,14 +46,18 @@ def sample_sequence(*, hparams, length, start_token=None, batch_size=None, conte
         # rather than leaving the last token transformer calculation to the while loop.
         context_output = step(hparams, context[:, :-1])
 
-        def body(past, prev, output):
+        def body(past, prev, output): # output is the tokens that are generated and accumulated
             next_outputs = step(hparams, prev[:, tf.newaxis], past=past)
             logits = next_outputs['logits'][:, -1, :]  / tf.to_float(temperature)
-            logits = top_k_logits(logits, k=top_k)
-            samples = tf.multinomial(logits, num_samples=1, output_dtype=tf.int32)
+            logits = top_k_logits(logits, k=top_k)#selects top k words that can be used in next line for sampling
+            samples = tf.multinomial(logits, num_samples=1, output_dtype=tf.int32)# this is greedy we just sample one
             return [
+                # this is the internal state of the transformer that will be updated
+                # by concatenating with old values of context_output['presents']
                 tf.concat([past, next_outputs['presents']], axis=-2),
+                # samples generated in this step
                 tf.squeeze(samples, axis=[1]),
+                # accumulation of sentences in all steps (used as the final outputs)
                 tf.concat([output, samples], axis=1),
             ]
 
